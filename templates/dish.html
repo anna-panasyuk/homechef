@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+{% if listing %}
+<div class="bg-white rounded-lg border p-4 space-y-2">
+  <h1 class="text-xl font-semibold">{{ listing.dish }}</h1>
+  <div class="text-sm text-neutral-500">{{ listing.region }}</div>
+  <div class="text-sm">Cook: {{ listing.cook.name }} ({{ listing.cook.area }})</div>
+  <div class="text-sm">Pickup: {{ listing.pickup_start.strftime('%H:%M') }}–{{ listing.pickup_end.strftime('%H:%M') }} on {{ listing.date }}</div>
+  <div class="flex justify-between items-center pt-2">
+    <div class="text-lg font-semibold">₹{{ listing.price_inr }}</div>
+    <div class="text-sm text-neutral-500">{{ listing.portions }} portions left</div>
+  </div>
+  <a href="/checkout/{{ listing.id }}" class="block mt-3 text-center bg-neutral-900 text-white py-2 rounded">Order</a>
+</div>
+{% else %}
+<p>Not found.</p>
+{% endif %}
+{% endblock %}

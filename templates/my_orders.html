@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-3">My orders</h1>
+<ul class="space-y-3">
+  {% for o in orders %}
+    {% if o %}
+    <li class="bg-white rounded-lg border p-3">
+      <a href="/order/{{ o.id }}" class="flex justify-between">
+        <div>
+          <div class="font-semibold">{{ o.listing.dish }}</div>
+          <div class="text-xs text-neutral-500">#{{ o.id }} · {{ o.status }}</div>
+        </div>
+        <div class="font-semibold">₹{{ o.amount_inr }}</div>
+      </a>
+    </li>
+    {% endif %}
+  {% else %}
+    <li class="text-sm text-neutral-500">No orders yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
