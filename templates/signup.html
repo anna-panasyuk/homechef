@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="text-xl font-semibold mb-3">Sign up</h1>
+<form method="post" action="/signup" class="space-y-3 bg-white p-4 border rounded-lg">
+  <input name="name" value="{{ name or '' }}" placeholder="Name" required
+         class="w-full border rounded px-3 py-2">
+  <input name="email" type="email" value="{{ email or '' }}" placeholder="Email" required
+         class="w-full border rounded px-3 py-2">
+  <input name="password" type="password" placeholder="Password (min 6 chars)" required
+         class="w-full border rounded px-3 py-2">
+  {% if error %}<p class="text-sm text-red-600">{{ error }}</p>{% endif %}
+  <button class="w-full bg-neutral-900 text-white py-2 rounded">Create account</button>
+  <p class="text-sm text-neutral-600">Already have an account? <a href="/login" class="underline">Log in</a></p>
+</form>
+{% endblock %}

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models import User, Listing, Order
+from .auth import hash_password, verify_password
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -33,23 +34,46 @@ def dish(request: Request, listing_id: int, db: Session = Depends(get_db)):
 
 @router.get("/login", response_class=HTMLResponse)
 def login_form(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "step": "phone"})
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @router.post("/login", response_class=HTMLResponse)
-def login_submit(request: Request, name: str = Form(...), phone: str = Form(...),
-                 otp: str = Form(default=""), db: Session = Depends(get_db)):
-    if otp != "1234":
+def login_submit(request: Request, email: str = Form(...), password: str = Form(...),
+                 db: Session = Depends(get_db)):
+    email = email.strip().lower()
+    user = db.scalar(select(User).where(User.email == email))
+    if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse("login.html",
-            {"request": request, "step": "otp", "name": name, "phone": phone})
-    user = db.scalar(select(User).where(User.phone == phone))
-    if not user:
-        user = User(name=name, phone=phone)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+            {"request": request, "error": "Invalid email or password", "email": email},
+            status_code=400)
     request.session["user_id"] = user.id
-    request.session["user"] = {"name": user.name, "phone": user.phone}
+    request.session["user"] = {"name": user.name, "email": user.email}
+    return RedirectResponse("/", status_code=303)
+
+
+@router.get("/signup", response_class=HTMLResponse)
+def signup_form(request: Request):
+    return templates.TemplateResponse("signup.html", {"request": request})
+
+
+@router.post("/signup", response_class=HTMLResponse)
+def signup_submit(request: Request, name: str = Form(...), email: str = Form(...),
+                  password: str = Form(...), db: Session = Depends(get_db)):
+    email = email.strip().lower()
+    if len(password) < 6:
+        return templates.TemplateResponse("signup.html",
+            {"request": request, "error": "Password must be at least 6 characters",
+             "name": name, "email": email}, status_code=400)
+    if db.scalar(select(User).where(User.email == email)):
+        return templates.TemplateResponse("signup.html",
+            {"request": request, "error": "Email already registered",
+             "name": name, "email": email}, status_code=400)
+    user = User(name=name, email=email, password_hash=hash_password(password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    request.session["user_id"] = user.id
+    request.session["user"] = {"name": user.name, "email": user.email}
     return RedirectResponse("/", status_code=303)
 
 

@@ -8,7 +8,8 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100))
-    phone: Mapped[str] = mapped_column(String(32), unique=True)
+    email: Mapped[str] = mapped_column(String(120), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
 
 
 class Cook(Base):
@@ -19,6 +20,7 @@ class Cook(Base):
     area: Mapped[str] = mapped_column(String(100))
     address: Mapped[str] = mapped_column(String(255))
     channel: Mapped[str] = mapped_column(String(10))  # sms | voice
+    default_pickup: Mapped[str] = mapped_column(String(40), default="12:00-14:00")
     batch_limit: Mapped[int] = mapped_column(Integer, default=5)
     completed_orders: Mapped[int] = mapped_column(Integer, default=0)
 

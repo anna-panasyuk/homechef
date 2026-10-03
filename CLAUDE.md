@@ -22,15 +22,16 @@ app/: main.py, db.py, models.py, pages.py (customer routes), orders.py (business
 templates/, static/, prompts/parse_listing.txt, scripts/seed.sql, scripts/smoke.py
 
 ## Data model
-users(id, name, phone unique)
-cooks(id, name, phone unique, area, address, channel sms|voice, batch_limit=5, completed_orders=0)
+users(id, name, email unique, password_hash)
+cooks(id, name, phone unique, area, address, channel sms|voice, default_pickup, batch_limit=5, completed_orders=0)
 listings(id, cook_id, dish, region, portions, price_inr, date, pickup_start, pickup_end, status open|closed)
 orders(id, user_id, listing_id, qty, amount_inr, pickup_slot, status pending|paid|closed|handed_over)
 payouts(id, cook_id, listing_id, kind advance|settlement, amount_inr, created_at)
 messages(id, cook_id, direction in|out, channel sms|voice, text, audio_path, created_at)
 
 ## Business rules
-- Browsing is open. Ordering needs login: name + phone + OTP, and the OTP is always 1234 (mock). No passwords.
+- Browsing is open. Customers sign up / log in with name + email + password (pbkdf2_hmac via hashlib). No email verification. Demo account: rohit@example.com / demo1234.
+- Cooks are registered by a self-help group coordinator via GET+POST /register-cook (name, phone, area, address, channel, default_pickup). Registration creates the cook with batch_limit=5 and stores the WELCOME reply as her first outbound message. Unknown numbers hitting the SMS pipeline get a fixed NOT_REGISTERED reply and are not auto-created.
 - Order qty can't exceed remaining portions. Payment is mocked: POST /pay marks the order paid.
 - The cook's address appears only on that customer's own paid order page.
 - A new listing's portions must be <= cook.batch_limit, otherwise the reply states the limit.
@@ -40,10 +41,10 @@ messages(id, cook_id, direction in|out, channel sms|voice, text, audio_path, cre
 
 ## Cook message pipeline
 SMS body or Whisper transcript -> llm.parse_listing(text) using prompts/parse_listing.txt -> JSON {dish, portions, price_inr, date, pickup_window, missing: []}.
-If missing is not empty, reply with the matching question from replies.py. Otherwise create the listing and reply with a confirmation. Unknown phone number -> create the cook (demo).
+If missing is not empty, reply with the matching question from replies.py. Otherwise create the listing and reply with a confirmation. Unknown phone number -> fixed NOT_REGISTERED reply, no auto-create.
 replies.py: dict KEY -> {"sms": Hinglish in Latin script, max 160 chars, "voice": Hindi in Devanagari}.
 
 ## Routes
-Customer (HTML): GET / (?area=), GET /dish/{id}, GET+POST /login, GET /logout, GET+POST /checkout/{listing_id}, POST /pay/{order_id}, GET /order/{id}, GET /my-orders
-Cook: POST /sms/incoming (Twilio webhook, TwiML reply), GET /phone (simulated phone: choose cook, message thread, text box, record button), POST /phone/sms (form: cook_phone, text) -> JSON {reply_text}, POST /phone/voice (multipart: cook_phone, audio webm) -> JSON {transcript, reply_text, reply_audio_url}
+Customer (HTML): GET / (?area=), GET /dish/{id}, GET+POST /signup, GET+POST /login, GET /logout, GET+POST /checkout/{listing_id}, POST /pay/{order_id}, GET /order/{id}, GET /my-orders
+Cook: GET+POST /register-cook (coordinator form), POST /sms/incoming (Twilio webhook, TwiML reply), GET /phone (simulated phone: choose cook, message thread, text box, record button), POST /phone/sms (form: cook_phone, text) -> JSON {reply_text}, POST /phone/voice (multipart: cook_phone, audio webm) -> JSON {transcript, reply_text, reply_audio_url}
 Demo: GET /admin (orders list + buttons), POST /admin/close-orders?date=, POST /admin/handover/{order_id}

@@ -1,7 +1,8 @@
 import re
 from datetime import date as dtdate, time as dttime
+from urllib.parse import quote
 from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import HTMLResponse, Response, JSONResponse
+from fastapi.responses import HTMLResponse, Response, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,6 +22,8 @@ ASK_KEY = {
     "date": "ASK_DATE",
     "pickup_window": "ASK_PICKUP",
 }
+FIELDS = ("dish", "portions", "price_inr", "date", "pickup_window")
+_DRAFTS: dict[int, dict] = {}
 
 PRICE_WORDS = re.compile(r"\b(price|rate|cost|paisa|rupay|rupee|dam|bhav|kitna)\b", re.IGNORECASE)
 
@@ -30,16 +33,8 @@ def _parse_pickup(window: str) -> tuple[dttime, dttime]:
     return dttime.fromisoformat(a.strip()), dttime.fromisoformat(b.strip())
 
 
-def _get_or_create_cook(db: Session, phone: str) -> tuple[Cook, bool]:
-    cook = db.scalar(select(Cook).where(Cook.phone == phone))
-    if cook:
-        return cook, False
-    cook = Cook(name=f"Cook {phone[-4:]}", phone=phone, area="Demo",
-                address="Demo address", channel="sms", batch_limit=5, completed_orders=0)
-    db.add(cook)
-    db.commit()
-    db.refresh(cook)
-    return cook, True
+def _find_cook(db: Session, phone: str) -> Cook | None:
+    return db.scalar(select(Cook).where(Cook.phone == phone))
 
 
 def _price_hint(db: Session, cook: Cook, text: str) -> str:
@@ -61,15 +56,9 @@ def _price_hint(db: Session, cook: Cook, text: str) -> str:
     return f"Similar dishes in {cook.area} are priced {min(prices)}-{max(prices)} INR per portion."
 
 
-def handle_cook_text(db: Session, cook: Cook, text: str, is_new: bool = False) -> str:
+def handle_cook_text(db: Session, cook: Cook, text: str) -> str:
     db.add(Message(cook_id=cook.id, direction="in", channel=cook.channel, text=text))
     db.commit()
-
-    if is_new:
-        reply_text = reply("WELCOME", channel=cook.channel)
-        db.add(Message(cook_id=cook.id, direction="out", channel=cook.channel, text=reply_text))
-        db.commit()
-        return reply_text
 
     data = parse_listing(text)
 
@@ -87,17 +76,26 @@ def handle_cook_text(db: Session, cook: Cook, text: str, is_new: bool = False) -
         db.commit()
         return reply_text
 
-    if data["missing"]:
-        key = ASK_KEY.get(data["missing"][0], "ASK_DISH")
+    draft = _DRAFTS.setdefault(cook.id, {})
+    for f in FIELDS:
+        if draft.get(f) in (None, "") and data.get(f) not in (None, ""):
+            draft[f] = data[f]
+    if draft.get("pickup_window") in (None, "") and cook.default_pickup:
+        draft["pickup_window"] = cook.default_pickup
+    missing = [f for f in FIELDS if draft.get(f) in (None, "")]
+
+    if missing:
+        key = ASK_KEY.get(missing[0], "ASK_DISH")
         reply_text = reply(key, channel=cook.channel)
-    elif int(data["portions"]) > cook.batch_limit:
+    elif int(draft["portions"]) > cook.batch_limit:
         reply_text = reply("OVER_LIMIT", channel=cook.channel, limit=cook.batch_limit)
+        _DRAFTS.pop(cook.id, None)
     else:
-        start, end = _parse_pickup(data["pickup_window"])
+        start, end = _parse_pickup(draft["pickup_window"])
         listing = Listing(
-            cook_id=cook.id, dish=data["dish"], region=cook.area,
-            portions=int(data["portions"]), price_inr=int(data["price_inr"]),
-            date=dtdate.fromisoformat(data["date"]),
+            cook_id=cook.id, dish=draft["dish"], region=cook.area,
+            portions=int(draft["portions"]), price_inr=int(draft["price_inr"]),
+            date=dtdate.fromisoformat(draft["date"]),
             pickup_start=start, pickup_end=end, status="open",
         )
         db.add(listing)
@@ -105,7 +103,8 @@ def handle_cook_text(db: Session, cook: Cook, text: str, is_new: bool = False) -
         reply_text = reply("CONFIRM", channel=cook.channel,
                            dish=listing.dish, portions=listing.portions,
                            price_inr=listing.price_inr, date=listing.date.isoformat(),
-                           pickup=data["pickup_window"])
+                           pickup=draft["pickup_window"])
+        _DRAFTS.pop(cook.id, None)
     db.add(Message(cook_id=cook.id, direction="out", channel=cook.channel, text=reply_text))
     db.commit()
     return reply_text
@@ -126,8 +125,10 @@ def phone_page(request: Request, cook_phone: str | None = None, db: Session = De
 
 @router.post("/phone/sms")
 def phone_sms(cook_phone: str = Form(...), text: str = Form(...), db: Session = Depends(get_db)):
-    cook, is_new = _get_or_create_cook(db, cook_phone)
-    reply_text = handle_cook_text(db, cook, text, is_new=is_new)
+    cook = _find_cook(db, cook_phone)
+    if not cook:
+        return JSONResponse({"reply_text": reply("NOT_REGISTERED", channel="sms")})
+    reply_text = handle_cook_text(db, cook, text)
     return JSONResponse({"reply_text": reply_text})
 
 
@@ -136,7 +137,36 @@ async def sms_incoming(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     phone = (form.get("From") or "").strip()
     body = (form.get("Body") or "").strip()
-    cook, is_new = _get_or_create_cook(db, phone)
-    reply_text = handle_cook_text(db, cook, body, is_new=is_new)
+    cook = _find_cook(db, phone)
+    reply_text = reply("NOT_REGISTERED", channel="sms") if not cook else handle_cook_text(db, cook, body)
     xml = f"<?xml version='1.0' encoding='UTF-8'?><Response><Message>{reply_text}</Message></Response>"
     return Response(content=xml, media_type="application/xml")
+
+
+@router.get("/register-cook", response_class=HTMLResponse)
+def register_cook_form(request: Request):
+    return templates.TemplateResponse("register_cook.html", {"request": request})
+
+
+@router.post("/register-cook", response_class=HTMLResponse)
+def register_cook_submit(request: Request,
+                         name: str = Form(...), phone: str = Form(...), area: str = Form(...),
+                         address: str = Form(...), channel: str = Form(...),
+                         default_pickup: str = Form(...),
+                         db: Session = Depends(get_db)):
+    phone = phone.strip()
+    channel = channel if channel in ("sms", "voice") else "sms"
+    if db.scalar(select(Cook).where(Cook.phone == phone)):
+        return templates.TemplateResponse("register_cook.html",
+            {"request": request, "error": "A cook with that phone already exists.",
+             "name": name, "phone": phone, "area": area, "address": address,
+             "channel": channel, "default_pickup": default_pickup}, status_code=400)
+    cook = Cook(name=name, phone=phone, area=area, address=address, channel=channel,
+                default_pickup=default_pickup, batch_limit=5, completed_orders=0)
+    db.add(cook)
+    db.commit()
+    db.refresh(cook)
+    welcome = reply("WELCOME", channel=cook.channel)
+    db.add(Message(cook_id=cook.id, direction="out", channel=cook.channel, text=welcome))
+    db.commit()
+    return RedirectResponse(f"/phone?cook_phone={quote(cook.phone, safe='')}", status_code=303)

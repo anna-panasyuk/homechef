@@ -39,6 +39,10 @@ REPLIES = {
         "sms": "HomeChef me swagat! Kal ka dish bhejiye: dish, portions, price, pickup time. Sawaal bhi pooch sakte hain.",
         "voice": "होमशेफ में आपका स्वागत है। कल की सूची भेजें: पकवान, पोर्शन, कीमत और पिकअप समय।",
     },
+    "NOT_REGISTERED": {
+        "sms": "Aapka number register nahi hai. Apne self-help group coordinator se poochiye.",
+        "voice": "आपका नंबर पंजीकृत नहीं है। कृपया अपने समूह समन्वयक से पूछें।",
+    },
     "HELP_FALLBACK": {
         "sms": "Abhi jawab nahi de paye. Thodi der baad try kijiye ya apne self-help group coordinator se poochiye.",
         "voice": "अभी उत्तर नहीं दे पाए। कृपया बाद में प्रयास करें या अपने समूह समन्वयक से पूछें।",
