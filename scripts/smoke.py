@@ -2,7 +2,6 @@
 import re
 import sys
 import time
-from datetime import date
 import httpx
 
 BASE = "http://localhost:8000"
@@ -26,7 +25,10 @@ def main() -> int:
 
         r = c.get(f"/dish/{lid}")
         assert r.status_code == 200
-        print("ok  dish page")
+        m = re.search(r"on (\d{4}-\d{2}-\d{2})", r.text)
+        assert m, "no date on dish page"
+        listing_date = m.group(1)
+        print(f"ok  dish page (date={listing_date})")
 
         email = f"smoke+{int(time.time())}@example.com"
         r = c.post("/signup", data={"name": "Smoke", "email": email, "password": "smoke1234"})
@@ -48,8 +50,7 @@ def main() -> int:
         assert "Pickup address" in r.text, "address missing after pay"
         print("ok  pay (address visible)")
 
-        today = date.today().isoformat()
-        r = c.post(f"/admin/close-orders?date={today}")
+        r = c.post(f"/admin/close-orders?date={listing_date}")
         assert r.status_code == 200
         r = c.get(f"/order/{oid}")
         assert "closed" in r.text
